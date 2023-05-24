@@ -7,13 +7,22 @@
 struct myMsg {
     long mtype; /* tipo di messaggio {obbligatorio} */ 
     int PlayerNumber;   // -> numero del giocatore
+    int dim1;   // -> numero righe;
+    int dim2;   // -> numero colonne
+    char token1;
+    char token2;
+    pid_t server_pid;
 };
+
 
 /*funzione generica che mi gestisce qualsiasi tipologia di errore incontrata durante il gioco*/
 void errExit(const char *msg);
 void waitForClient(char* pathFIFO, unsigned short client_nr, pid_t* pid, char* name);
 void semOp (int semid, unsigned short sem_num, short sem_op);
-//void handlerCtrlC(int sig);
+void handleCtrlClient(int sig);
+void handlerCtrlC(int sig);
+
+int end_game = 0;
 
 int main(int argc, char *argv[]) {
 
@@ -52,6 +61,9 @@ int main(int argc, char *argv[]) {
     // creo l'id della msgq
     int msgq_server_id = msgget(msgq_server_key, IPC_CREAT | S_IRUSR | S_IWUSR);
 
+    if (msgq_server_id == -1)
+        errExit("Errore nella creazione della msgq1\n");
+
     // creo due messaggi 
     struct myMsg mymsg1,mymsg2;
 
@@ -60,6 +72,20 @@ int main(int argc, char *argv[]) {
     mymsg2.mtype = 9;
     mymsg1.PlayerNumber = 1;
     mymsg2.PlayerNumber = 2;    
+    mymsg1.dim1 = dim[0];
+    mymsg2.dim1 = dim[0];
+    mymsg1.dim2 = dim[1];
+    mymsg2.dim2 = dim[1];
+    mymsg1.token1 = *argv[3];
+    mymsg2.token1 = *argv[3];
+    mymsg1.token2 = *argv[4];
+    mymsg2.token2 = *argv[4];
+    mymsg1.server_pid = getpid();
+    mymsg2.server_pid = getpid();
+    
+
+    //printf("Debug: prova %c\n", mymsg1.token1);
+    //printf("Debug: prova %c\n", mymsg1.token2);
 
     // invio i messaggio alla msgq e controllo se l'invio va a buon fine 
     if(msgsnd(msgq_server_id,&mymsg1,sizeof(mymsg1)-sizeof(long),0) == -1)
@@ -82,7 +108,7 @@ int main(int argc, char *argv[]) {
     //controllo che l'operazione sia andata buon fine
     if (*shm_table == (int) -1)
         errExit("Errore nella creazione della connessione con la memoria condivisa[lato server]\n");
-
+    
     /*creazione dei semafori*/
     // creo la chiave a mano 
     key_t sem_server_key = 91;   // 91 chiave per i semafori 
@@ -115,8 +141,8 @@ int main(int argc, char *argv[]) {
 
     /*creo la matrice*/
     //int *game_table[20];
-    int game_matrix[5][5];
-
+    int game_matrix[20][20];
+    
     //inizializzo la matrice
     //inizialize_table_from_environ(&game_table,dim[0],dim[1]); -> deprecato
     inizialize_table(game_matrix,dim[0],dim[1]);
@@ -130,16 +156,22 @@ int main(int argc, char *argv[]) {
     //copio i dati della matrice nella memoria condivisa 
     for(int i = 0; i < dim[0]; i++) 
         for(int j = 0; j < dim[1]; j++)
-            shm_table[i * dim[1] +j] = game_matrix[i][j];
+            shm_table[i*dim[1]+j] = game_matrix[i][j];
 
     printf("<Server> ecco cosa ho predisposto per i due giocatori:\n");
     print_table(game_matrix,dim[0],dim[1]);
-    printf("<Server ecco cosa hai ottenuto:\n>");
+    printf("<Server> ecco la tua fake table :) :\n");
+    print_fake_table(game_matrix,dim[0],dim[1],1,2,*argv[3],*argv[4]);
+    printf("<Server ecco cosa hai ottenuto:>\n");
     for(int i = 0; i < dim[0]; i++) {
         for(int j = 0; j < dim[1]; j++)
-            printf("{%i}",shm_table[i * dim[1] +j]);
+            printf("{%i}",shm_table[i*dim[1]+j]);
         printf("\n");
     }
+
+    if(signal(SIGINT,handlerCtrlC) == SIG_ERR)
+        errExit("Errore nel cambio del del segnale\n");
+
 
     /*il server deve attendere la connessione dei figli*/                                                                                              
 
@@ -172,10 +204,21 @@ int main(int argc, char *argv[]) {
 
     int sem_server = 0; 
     int win = 0;
-    int playerTurn = 1; 
+    int playerTurn = 1;     // -> parte il primo giocatore, il server cambierà il turno cedendo semaforo corretto
+
+    /*imposto i sengali*/
+    
+    if(signal(SIGUSR2,handleCtrlClient) == SIG_ERR)
+        errExit("Errore nel cambio del segnale(client)\n");
+    
 
     printf("<Server> partita avviata con successo!\n");
     while(1) {
+
+        // ho finito la partita
+        if(end_game == -1) {
+            break;
+        }
 
         // blocco il server
         printf("DEBUG-> METTO A DORMIRE IL SERVER\n");
@@ -219,9 +262,11 @@ int main(int argc, char *argv[]) {
             if(semctl(sem_server_id,0,IPC_RMID,NULL) == -1)
                 errExit("Errore nella rimozione del set dei semaofri nel server\n");
         
-            /*prima di terminare libero la memoria allocata per la matrice*/
-            //free(shm_table);
-
+            /*eliminare la msq*/
+            printf("<Server> sta elimnando la msgq...\n");
+            if(msgctl(msgq_server_id,0,IPC_RMID) == -1)
+                errExit("Errore nella rimozione della msgq\n");
+        
             exit(0);    // fine del gioco
 
         }
@@ -235,27 +280,30 @@ int main(int argc, char *argv[]) {
 
     }
 
-    /*
+    // qui arriviamo solo se end_game == -1
+    // mando il segnale ai giocatori che la partita è finita
+    kill(client_pid[0],SIGUSR2);
+    kill(client_pid[1],SIGUSR2);
 
-    rimuovere le connessioni create
+    //rimuovere le connessioni create
     printf("<Server> sta eliminando le connessioni...\n");
     if(shmdt(shm_table) == -1)
         errExit("Errore nel eliminazione della connessione\n");
 
-    eliminare la memoria condivisa
+    //eliminare la memoria condivisa
     printf("<Server> sta eliminando la memoria condivisa...\n");
-    if(shmctl(shm_server_id,0ignored,IPC_RMID) == -1)
+    if(shmctl(shm_server_id,0/*ignored*/,IPC_RMID) == -1)
         errExit("Errore nell'eliminazione della memoria condivisa\n");
 
-    eliminare il set di semafori
+    //eliminare il set di semafori
     printf("<Server> sta eliminando il set di semafori...\n");
     if(semctl(sem_server_id,0,IPC_RMID,NULL) == -1)
         errExit("Errore nella rimozione del set dei semaofri nel server\n");
     
-    prima di terminare libero la memoria allocata per la matrice
-    //free(shm_table);
-
-    */
+    /*eliminare la msq*/
+    printf("<Server> sta elimnando la msgq...\n");
+    if(msgctl(msgq_server_id,0,IPC_RMID) == -1)
+        errExit("Errore nella rimozione della msgq\n");
 
     return 0;
 }
@@ -282,32 +330,17 @@ void semOp (int semid, unsigned short sem_num, short sem_op) {
     }
 }
 
-/*
 void handlerCtrlC(int sig) {
-    if (sig == SIGTERM) {
-
-            avviso che la partita è stata stoppata
-            printf("<Server> la partita è terminata forzatamente!!!\n");
-            
-            rimuovere le connessioni create
-            printf("<Server> sta eliminando le connessioni...\n");
-            if(shmdt(shm_table) == -1)
-                errExit("Errore nel eliminazione della connessione\n");
-
-            eliminare la memoria condivisa
-            printf("<Server> sta eliminando la memoria condivisa...\n");
-            if(shmctl(shm_server_id,0ignored,IPC_RMID) == -1)
-                errExit("Errore nell'eliminazione della memoria condivisa\n");
-
-            eliminare il set di semafori
-            printf("<Server> sta eliminando il set di semafori...\n");
-            if(semctl(sem_server_id,0,IPC_RMID,NULL) == -1)
-                errExit("Errore nella rimozione del set dei semaofri nel server\n");
-
-            exit(0);    // fine del gioco
+    if (sig == SIGINT) {
+        end_game = -1;
+        printf("<Server> la partita è stata forzatamente chiusa\n");
     }
 }
-*/
 
-
+void handleCtrlClient(int sig) {
+    if (sig == SIGTERM) {
+        end_game = -1;
+        printf("<Server> rimozione per abbandono di un giocatore\n");
+    }
+}
 

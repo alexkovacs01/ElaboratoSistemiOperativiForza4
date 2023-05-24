@@ -8,7 +8,7 @@
 void inizialize_table(int mat[n][m], int dim1, int dim2) {
     for(int i = 0; i < dim1; i++) 
         for(int j = 0; j < dim2; j++)
-            mat[i][j] = 99;     // non posso inizializzare la matrice a 0 se no si bugga 
+            mat[i][j] = 3;     // non posso inizializzare la matrice a 0 se no si bugga 
 }   
 
 void print_table(int mat[n][m],int dim1, int dim2) {
@@ -21,10 +21,32 @@ void print_table(int mat[n][m],int dim1, int dim2) {
     printf("\n");
 }
 
+void print_fake_table(int mat[n][m],int dim1,int dim2,int player1,int player2,char token1,char token2) {
+
+    for (int i = 0; i < dim1; i++) {
+        for (int j = 0; j < dim2; j++) {
+            if (mat[i][j] == player1){
+                // print token1
+                printf("[%c]", token1);
+            }
+            else if(mat[i][j] == player2) { // -> else crea problemi per matrice vuota 
+                // print token2
+                printf("[%c]", token2);
+            }
+            else {
+                printf("[ ]");
+            }
+        }
+        printf("\n");
+    }
+
+
+}
+
 int check_win(int mat[n][m], int symbol_player, int dim1, int dim2) {
 
     int win;
-    
+        
     win = check_vertical_win(mat,symbol_player, dim1, dim2);
     
     if (win != 1) {
@@ -35,6 +57,7 @@ int check_win(int mat[n][m], int symbol_player, int dim1, int dim2) {
         printf("#GIOCATORE %i#\n", symbol_player);
 
     return win;
+
 
 }
 /*funziona*/
@@ -66,7 +89,8 @@ int check_vertical_win(int mat[n][m],int symbol_player, int dim1, int dim2){
         }
     }
     
-    return -1;
+    return -1;  // Nessuna vittoria verticale
+
 }
 /*funziona*/
 int check_orizzontal_win(int mat[n][m],int symbol_player, int dim1, int dim2) {
@@ -138,11 +162,22 @@ int insert_in_table(int mat[n][m], int player, int symbol_player, int bot , int 
             return -1;
     } while(choose != 1);   /*se eccede i limiti ripeto l'inserimento*/
 
+    /*qui bisogna stare attendi se dim1 > dim2 ecc -> questo if non è servito a cazzo niente*/
     /*inserisco all'interno della matrice*/
-    for (int i = n-1; i >= 0; i--) {
-        if (mat[i][column] == 99) { // bug con l'inserimento se qui a 0
-            mat[i][column] = symbol_player;
-            break;
+    if (dim2 > dim1) {
+        for (int i = dim1-1; i >= 0; i--) {    // ecco il bug vado a dire n-1 ovvero dimensione righe-1
+            if (mat[i][column] == 3 || mat[i][column] == 0) { // bug con l'inserimento se qui a 0
+                mat[i][column] = symbol_player;
+                printf("Debug pos:[%i][%i]\n", i,column);
+                break;
+            }
+        }
+    }else {
+        for (int i = dim1-1; i >= 0; i--) {    // ecco il bug vado a dire n-1 ovvero dimensione righe-1
+            if (mat[i][column] == 3) { // bug con l'inserimento se qui a 0
+                mat[i][column] = symbol_player;
+                break;
+            }
         }
     }
 
@@ -157,9 +192,11 @@ int is_aveilable_column(int mat[n][m], int column, int symbol_player, int dim1) 
             /*ciascun spazio occupato lo conto quando è del tutto occupato ritorno -1*/
             cont++;
             //printf("AVDEBUG->%i,col:%i\n", cont, column);
-            if (cont == 5)
+            if (cont == dim1)
                 return -1;
         }
     }
     return 1;
 }
+
+
