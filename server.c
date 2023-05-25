@@ -50,7 +50,7 @@ int main(int argc, char *argv[]) {
     /*fine prototipo*/
 
     // giusto per stampare qualcosa, andrà rimossa
-    printf("hai acquisito:%i, %i, %s, %s\n", dim[0],dim[1],symbols[0],symbols[1]);
+    // printf("hai acquisito:%i, %i, %s, %s\n", dim[0],dim[1],symbols[0],symbols[1]);
 
     /*predisposizione della partita*/
 
@@ -158,6 +158,7 @@ int main(int argc, char *argv[]) {
         for(int j = 0; j < dim[1]; j++)
             shm_table[i*dim[1]+j] = game_matrix[i][j];
 
+    /* // server DEBUG MATRICI
     printf("<Server> ecco cosa ho predisposto per i due giocatori:\n");
     print_table(game_matrix,dim[0],dim[1]);
     printf("<Server> ecco la tua fake table :) :\n");
@@ -168,6 +169,7 @@ int main(int argc, char *argv[]) {
             printf("{%i}",shm_table[i*dim[1]+j]);
         printf("\n");
     }
+    */
 
     if(signal(SIGINT,handlerCtrlC) == SIG_ERR)
         errExit("Errore nel cambio del del segnale\n");
@@ -189,9 +191,10 @@ int main(int argc, char *argv[]) {
 		waitForClient(pathFIFO, client_nr, &client_pid[client_nr], client_name[client_nr]);
 	}
 
+    
 	printf("[DEBUG] [SERVER] User 1, pid: %d, name: %s\n", client_pid[0], client_name[0]);
 	printf("[DEBUG] [SERVER] User 2, pid: %d, name: %s\n", client_pid[1], client_name[1]);
-
+    
     printf("<Server> la connessione è avvenuta con successo\n");
     /*end rick code*/
 
@@ -210,23 +213,22 @@ int main(int argc, char *argv[]) {
     
     if(signal(SIGUSR2,handleCtrlClient) == SIG_ERR)
         errExit("Errore nel cambio del segnale(client)\n");
-    
 
     printf("<Server> partita avviata con successo!\n");
-    while(1) {
-
-        // ho finito la partita
-        if(end_game == -1) {
-            break;
-        }
+    while(!end_game) {
 
         // blocco il server
-        printf("DEBUG-> METTO A DORMIRE IL SERVER\n");
+        //printf("DEBUG-> METTO A DORMIRE IL SERVER\n");
+
         // sblocco un giocatore 
         semOp(sem_server_id,playerTurn,+1);
         semOp(sem_server_id,sem_server,-1);
 
-        printf("DEBUG-> CIAO SONO IL SERVER E MI SON O SBLOCCATO :)))\n");
+        // cotnrollo se la partita è terminata in quanto ho preso un SIGINT
+        if(end_game == 1) 
+            break;
+
+        //printf("DEBUG-> CIAO SONO IL SERVER E MI SON O SBLOCCATO :)))\n");
 
         // controllo se qualcuno ha vinto aggiornando la matrice copiandola dalla memoria condivisa
         for(int i = 0; i < dim[0]; i++) 
@@ -323,23 +325,28 @@ void waitForClient(char* pathFIFO, unsigned short client_nr, pid_t* pid, char* n
 void semOp (int semid, unsigned short sem_num, short sem_op) {
     struct sembuf sop = {.sem_num = sem_num, .sem_op = sem_op, .sem_flg = 0};
 
-    if (semop(semid, &sop, 1) == -1){
-        printf("semop failed\n");
-        perror("semop");
-        exit(EXIT_FAILURE);
+    if (semop(semid, &sop, 1) == -1) {
+
+        // capto il segnale del interrupt
+        if(errno == EINTR) {
+            end_game = 1;
+        } 
+        else {
+            errExit("semOp failed(nel server)\n");
+        }
     }
 }
 
 void handlerCtrlC(int sig) {
     if (sig == SIGINT) {
-        end_game = -1;
+        end_game = 1;
         printf("<Server> la partita è stata forzatamente chiusa\n");
     }
 }
 
 void handleCtrlClient(int sig) {
-    if (sig == SIGTERM) {
-        end_game = -1;
+    if (sig == SIGUSR2) {
+        end_game = 1;
         printf("<Server> rimozione per abbandono di un giocatore\n");
     }
 }

@@ -31,8 +31,6 @@ int main(int argc, char *argv[]) {
 
     username = argv[1];
 
-    printf("Welcome %s\n", username);
-
     /*MSGQ*/
 
     // chiave della msgq
@@ -43,7 +41,7 @@ int main(int argc, char *argv[]) {
 
     // vefiica 
     if (msgq_id == -1)
-        errExit("Errore nella creazione della msgq\n");
+        errExit("Partita non esitente\n");
 
     struct myMsg mymsg;
 
@@ -92,7 +90,8 @@ int main(int argc, char *argv[]) {
 
 
     printf("[DEBUG] [CLIENT] Game started!\n");
-
+    printf("Welcome %s\n", username);
+    
     // prendo la chiave della memoria condivisa 
     key_t shm_key = 90;
 
@@ -112,32 +111,6 @@ int main(int argc, char *argv[]) {
 
     // provo inizializzando anche qui la matrice 
     inizialize_table(mat_copy,20,20);   // la inizializzo tutta
-
-    //printf("DEBUG %i %i dimeniosni\n", dim1,dim2);
-
-
-    /* ma se inizialmente è vuota che senso ha fare questo?
-    
-    for(int i = 0; i < dim1; i++) 
-        for(int j = 0; j < dim2; j++)
-            mat_copy[i][j] = shm_ptr[i * dim1 +j];    // nota non ricordo se dim1 o dim2
-
-    
-    printf("DEBUG CLIENT ecco la matrice che hai:\n");
-    
-    for(int i = 0; i < dim2; i++) {
-        for(int j = 0; j < dim1; j++)
-            printf("[%i]", mat_copy[i][j]);    
-        printf("\n");
-    }
-    
-    for(int i = 0; i < dim1; i++) {
-        for(int j = 0; j < dim2; j++)
-            printf("->%i<-", shm_ptr[i * dim1 +j]);    
-        printf("\n");
-    }
-    */
-
     
     // accedo al set di semafori per sincronizzare la partita 
     key_t sem_key = 91;
@@ -147,10 +120,6 @@ int main(int argc, char *argv[]) {
 
     // Indici dei semafori nel set
     int serverSemaphore = 0;
-
-    // Esegui le operazioni di gioco per entrambi i giocatori
-    // Puoi utilizzare un ciclo o una logica appropriata per gestire i turni dei giocatori
-
     
     if (signal(SIGUSR2,handleEndGameSingal) == SIG_ERR)
             errExit("Errore nella ricezione del sengale\n");
@@ -162,103 +131,52 @@ int main(int argc, char *argv[]) {
 
     while(1) {
 
-        // blocco il semaforo del giocatore corrent
+        //printf("DEBUG end_flag->%i\n",end_flag);
+
+        // blocco il semaforo del giocatore corrente
         semOp(sem_id,mymsg.PlayerNumber,-1);
 
-        /*
-        // problema, si impuntano entrambi sullo stesso semaforo
-        if (playerTurn == 0) {
-            // acquisisci il semaforo per il primo giocatore
-            printf("Debug->acquisisco il semaforo del primo giocatore\n");
-            semOp(sem_id,player1Semaphore,-1);
-        }
-        else {
-            // acquisici il semaforo per il secondo giocatore
-            printf("Debug->acquisisco il semaforo del scondo giocatore\n");
-            semOp(sem_id,player2Semaphore,-1);
-        }
-        */
-        
-        //printf("DEBUG ecco la dimensione della matrice: [%i][%i]\n:", dim1,dim2);
         // aggiorno la copia della mia tabella
-        if (dim2 >= dim1) {
-            for(int i = 0; i < dim1; i++) 
-                for(int j = 0; j < dim2; j++)
-                    mat_copy[i][j] = shm_ptr[i*dim2+j];
-        } else {
-            for(int i = 0; i < dim1; i++) 
-                for(int j = 0; j < dim2; j++)
-                    mat_copy[i][j] = shm_ptr[i*dim2+j];
-        }
+        for(int i = 0; i < dim1; i++) 
+            for(int j = 0; j < dim2; j++)
+                mat_copy[i][j] = shm_ptr[i*dim2+j];
 
-        //printf("Ho acquisito almeno un semaforo\n");
-
+        /*
         if (signal(SIGUSR2,handleEndGameSingal) == SIG_ERR)
             errExit("Errore nella ricezione del sengale\n");
-
-        if (end_flag == 1)  // se la partita è finita interrompo
-            exit(0);    //fine dei giochi
+        */
 
         /*operazione del giocatore*/
-
-        //printf("<Client> tocca giocatore: [%i]\n", playerTurn+1); -> deprecato
         printf("\n<Client> ecco il campo di gioco: \n");
-        // queste dimensioni me le devo far passare dal server 
-        if (dim2<=dim1){
-        print_table(mat_copy,dim1,dim2);
+        
+        // stampo le matrici a video
+        // print_table(mat_copy,dim1,dim2); // -> matrice con valori veri
         print_fake_table(mat_copy,dim1,dim2,1,2,mymsg.token1,mymsg.token2);
-        }
-        else {
-            print_table(mat_copy,dim1,dim2);
-            print_fake_table(mat_copy,dim1,dim2,1,2,mymsg.token1,mymsg.token2);
-        }
-        //print_table(mat_copy,dim1,dim2);
+        
         // modifica della matrice in memoria condivisa 
         // il turno+1 coincide col simbolo per la vittoria
         printf("<Client> inserisci: \n");
         ins_flag = insert_in_table(mat_copy,mymsg.PlayerNumber,mymsg.PlayerNumber,0/*no vs bot{1x gicare contro il bot}*/,dim1,dim2);
 
         // se l'ins_flag == -1 si è verificato un pareggio bisognerà mandare kill al server
-        /*
-        if (ins_flag == -1) 
-            errExit("Ins_flag == -1\n");
-        */
+        
+        if (ins_flag == -1) {
+            printf("<Client> Si è verificato un pareggio, sconnetto il giocatore\n");
+            kill(copy_server_pid,SIGUSR2);
+        }    
 
         // aggiorno la tabella in memoria condivisa
-        if (dim2 >= dim1) {
-            for(int i = 0; i < dim1; i++) 
+        for(int i = 0; i < dim1; i++) 
                 for(int j = 0; j < dim2; j++)
                     shm_ptr[i*dim2+j] = mat_copy[i][j];
-        }
-        else {
-            for(int i = 0; i < dim1; i++) 
-                for(int j = 0; j < dim2; j++)
-                    shm_ptr[i*dim2+j] = mat_copy[i][j];
-        }
-        
-        /*
-        printf("DEBUG -> Rilascio del semaforo corrente per consentire all'altro di giocare\n");
-        // rilascia il semaforo corrente per consentire all'altro giocatore di giocare
-        if (playerTurn == 0)
-            semOp(sem_id,player1Semaphore,1);
-        else
-            semOp(sem_id,player2Semaphore,1);
-        */
         
         // sblocco il server che esegue l'operazione di controllo della vittoria 
         semOp(sem_id,serverSemaphore,1);
 
-        /*
-        // Passa al turno successivo
-        playerTurn = (playerTurn + 1) % 2;  
-        */
-
-        //exit(0);
     }
     
     return 0;
 }
-
 
 void handleStartSingal(int signal) {
     if(signal == SIGUSR1)
@@ -267,11 +185,13 @@ void handleStartSingal(int signal) {
 
 void handleEndGameSingal(int signal) {
     if(signal == SIGUSR2) {
-        end_flag = 1;
+        printf("<Server> cari giocatori partita finita\n");
+        exit(0);
     }  
-    else if (signal == SIGTERM) {
+    else if (signal == SIGINT) {
         // devo comunque terminare qui la partita ma inviare anche al server che uno dei due ha abbandonato
         end_flag = 1;
+        printf("<Client> hai abbandonato la partita, hai perso!\n");
         kill(copy_server_pid,SIGUSR2);
         exit(0);
     }
@@ -286,6 +206,17 @@ void errExit(const char *msg) {
 void semOp (int semid, unsigned short sem_num, short sem_op) {
     struct sembuf sop = {.sem_num = sem_num, .sem_op = sem_op, .sem_flg = 0};
 
-    if (semop(semid, &sop, 1) == -1)
-        errExit("SemOp failed\n");
+    if (semop(semid, &sop, 1) == -1) {
+        if (errno == EINTR) {
+            kill(copy_server_pid,SIGINT);   // mando l'interrupt anche al server
+            exit(0);
+        } /*The semaphore set doesn't exist, or semid is less than
+              zero, or nsops has a nonpositive value.*/
+        else if (errno == EINVAL) {   // per il primo giocatore
+            exit(0);
+        }
+        else {
+            errExit("SemOp failed(nel client)\n");
+        }
+    }   
 }

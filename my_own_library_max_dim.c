@@ -39,8 +39,6 @@ void print_fake_table(int mat[n][m],int dim1,int dim2,int player1,int player2,ch
         }
         printf("\n");
     }
-
-
 }
 
 int check_win(int mat[n][m], int symbol_player, int dim1, int dim2) {
@@ -127,7 +125,7 @@ int check_parity(int mat[n][m], int symbol_player, int dim2) {
     for(int j = 0; j < dim2; j++) {
         if ((mat[0][j] == 1) || (mat[0][j] == 2)) {
             cont++;
-            if (cont == 5)
+            if (cont == dim2)
                 return -1;
         }
     }
