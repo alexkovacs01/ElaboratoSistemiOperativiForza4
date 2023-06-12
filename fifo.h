@@ -25,7 +25,7 @@ void createFIFO(char* pathFIFO);
 void writeFIFO(char* pathFIFO, void* buf, size_t size);
 
 /// @warning NOT SAFE TO USE FOR NOW (Not tested)
-void readFIFO(char* pathFIFO, const void* buf, size_t size);
+void readFIFO(char* pathFIFO, void* buf, size_t size);
 
 void errExit2(const char *);
 

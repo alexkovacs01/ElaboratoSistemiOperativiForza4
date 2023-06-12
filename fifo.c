@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "../inc/fifo.h"
+#include "errno.h"
 
 void createFIFO(char* pathFIFO) {
 	mkfifo(pathFIFO, 0666);
@@ -16,11 +17,18 @@ void writeFIFO(char* pathFIFO, void* buf, size_t size) {
 	close(fd);
 }
 
-void readFIFO(char* pathFIFO, const void* buf, size_t size) {
-	int fd = open(pathFIFO, O_RDONLY);
+void readFIFO(char* pathFIFO, void* buf, size_t size) {
+
+	int fd;
+
+	do {
+		fd = open(pathFIFO, O_RDONLY); 
+	} while(fd < 0 && errno == EINTR);
+	
 	if(read(fd, buf, size) == -1) {
-		errExit2("write() failed");
+		errExit2("read() failed");
 	}
+
 	close(fd);
 }
 

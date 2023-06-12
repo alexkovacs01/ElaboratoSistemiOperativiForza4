@@ -146,8 +146,7 @@ int insert_in_table(int mat[n][m], int player, int symbol_player, int bot , int 
         }
         else{   // è stata scelta l'opzione di giocare contro il bot
             srand(time(NULL));
-            column = rand() %5 +1;
-            bot--;
+            column = rand() %dim2;
         }
 
         /*controllo la scelta che è stata fatta se non eccede i limiti*/
@@ -166,7 +165,7 @@ int insert_in_table(int mat[n][m], int player, int symbol_player, int bot , int 
         for (int i = dim1-1; i >= 0; i--) {    // ecco il bug vado a dire n-1 ovvero dimensione righe-1
             if (mat[i][column] == 3 || mat[i][column] == 0) { // bug con l'inserimento se qui a 0
                 mat[i][column] = symbol_player;
-                printf("Debug pos:[%i][%i]\n", i,column);
+                //printf("Debug pos:[%i][%i]\n", i,column);
                 break;
             }
         }

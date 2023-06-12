@@ -2,6 +2,7 @@
 #include "my_own_library_final.h"
 #include "../inc/fifo.h"
 #include <signal.h>
+#include <time.h>
 
 struct myMsg {
     long mtype; /* tipo di messaggio {obbligatorio} */ 
@@ -27,9 +28,12 @@ pid_t copy_server_pid;
 
 int main(int argc, char *argv[]) {
     
-    char *username;
+    time_t tempo;   // mi serve per capire quanto tempo sia passato 
 
+    char *username;
+    char *auto_bot;
     username = argv[1];
+    auto_bot = argv[2];
 
     /*MSGQ*/
 
@@ -65,6 +69,13 @@ int main(int argc, char *argv[]) {
 
     copy_server_pid = mymsg.server_pid;
 
+    /*significa che voglio giocare contro un bot*/
+    if (auto_bot != NULL && (strcmp(auto_bot,"bot") == 0)) { 
+        printf("Ho inviato il segnale al server per botgame\n");
+        // informo il server di questa cosa (questa cosa succede all'inizio della partita)
+        kill(copy_server_pid,SIGUSR1);  // Uso SIGUSR1 per dire di giocare contro il bot
+    }
+
     /*FIFO*/
     char pathFIFO[] = "/tmp/myfifo";
 
@@ -75,19 +86,28 @@ int main(int argc, char *argv[]) {
 	buf.messageType = 1;
 	buf.pidSender = getpid();
 	buf.messageType = 1; // For request connection
-	buf.str1[0] = 'A';
-	char name[strlen(argv[1])];
+	//buf.str1[0] = 'A';
+    /*
+	printf("%i\n", getpid());
+    printf("%i\n", argc);
+    printf("%s\n",argv[1]);
+    */
+
+    char name[strlen(argv[1])];
     strcpy(name,argv[1]);
 	strcpy(buf.str1, name);
-	
+    
+
 	printf("[DEBUG] [CLIENT] message send, pid: %d, messageType: %d, str1: %s", buf.pidSender, buf.messageType, buf.str1);
-	writeFIFO(pathFIFO, &buf, sizeof(buf));
-
+	
     signal(SIGUSR1,handleStartSingal);
+    signal(SIGTERM,handleStartSingal);  // utilizzo non consono
+    
+    writeFIFO(pathFIFO, &buf, sizeof(buf));
 
-    while(!gameStarted)
+    while(!gameStarted){
         pause();    // -> Mi metto in attesa per l'inizio della partita 
-
+    }
 
     printf("[DEBUG] [CLIENT] Game started!\n");
     printf("Welcome %s\n", username);
@@ -131,8 +151,6 @@ int main(int argc, char *argv[]) {
 
     while(1) {
 
-        //printf("DEBUG end_flag->%i\n",end_flag);
-
         // blocco il semaforo del giocatore corrente
         semOp(sem_id,mymsg.PlayerNumber,-1);
 
@@ -140,11 +158,6 @@ int main(int argc, char *argv[]) {
         for(int i = 0; i < dim1; i++) 
             for(int j = 0; j < dim2; j++)
                 mat_copy[i][j] = shm_ptr[i*dim2+j];
-
-        /*
-        if (signal(SIGUSR2,handleEndGameSingal) == SIG_ERR)
-            errExit("Errore nella ricezione del sengale\n");
-        */
 
         /*operazione del giocatore*/
         printf("\n<Client> ecco il campo di gioco: \n");
@@ -156,7 +169,29 @@ int main(int argc, char *argv[]) {
         // modifica della matrice in memoria condivisa 
         // il turno+1 coincide col simbolo per la vittoria
         printf("<Client> inserisci: \n");
-        ins_flag = insert_in_table(mat_copy,mymsg.PlayerNumber,mymsg.PlayerNumber,0/*no vs bot{1x gicare contro il bot}*/,dim1,dim2);
+
+        /*
+        printf("Ecco il pid del padre-> %i\n",getppid());
+        printf("Copy server pid-> %i\n", copy_server_pid);
+        */
+
+        /*controllo se sono stato eseguito dal server o meno*/
+        if (getppid() == copy_server_pid) {
+            //printf("GIOCO CONTRO BOT\n");
+            ins_flag = insert_in_table(mat_copy,mymsg.PlayerNumber,mymsg.PlayerNumber,1/*vs bot*/,dim1,dim2);
+        } else {
+
+            tempo = time(0);
+
+            ins_flag = insert_in_table(mat_copy,mymsg.PlayerNumber,mymsg.PlayerNumber,0/*no vs bot{1x gicare contro il bot}*/,dim1,dim2);
+
+            // se l'inserimento del giocatore è durato troppo allora lo sconnetto
+            if ((tempo - (time(0))) < -5) {
+                printf("<Client> sei stato sconnesso per time-out\n");
+                kill(getpid(),SIGINT);  // mi chiudo 
+            }
+            
+        }
 
         // se l'ins_flag == -1 si è verificato un pareggio bisognerà mandare kill al server
         
@@ -179,8 +214,9 @@ int main(int argc, char *argv[]) {
 }
 
 void handleStartSingal(int signal) {
-    if(signal == SIGUSR1)
-        gameStarted = 1;
+
+    gameStarted = 1; // inizio della partita
+
 }
 
 void handleEndGameSingal(int signal) {

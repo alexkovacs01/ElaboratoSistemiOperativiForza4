@@ -14,15 +14,15 @@ struct myMsg {
     pid_t server_pid;
 };
 
-
 /*funzione generica che mi gestisce qualsiasi tipologia di errore incontrata durante il gioco*/
 void errExit(const char *msg);
 void waitForClient(char* pathFIFO, unsigned short client_nr, pid_t* pid, char* name);
 void semOp (int semid, unsigned short sem_num, short sem_op);
 void handleCtrlClient(int sig);
 void handlerCtrlC(int sig);
+void handleBotOption(int sig);
 
-int end_game = 0;
+int end_game = 0, cont_ctrlc = 0, bot_optz = 0;
 
 int main(int argc, char *argv[]) {
 
@@ -47,7 +47,6 @@ int main(int argc, char *argv[]) {
     if ((dim[0] > 20) || (dim[1] > 20)) {
         errExit("Dimensione massima non rispettata\n");
     }
-    /*fine prototipo*/
 
     // giusto per stampare qualcosa, andrà rimossa
     // printf("hai acquisito:%i, %i, %s, %s\n", dim[0],dim[1],symbols[0],symbols[1]);
@@ -83,7 +82,6 @@ int main(int argc, char *argv[]) {
     mymsg1.server_pid = getpid();
     mymsg2.server_pid = getpid();
     
-
     //printf("Debug: prova %c\n", mymsg1.token1);
     //printf("Debug: prova %c\n", mymsg1.token2);
 
@@ -174,36 +172,41 @@ int main(int argc, char *argv[]) {
     if(signal(SIGINT,handlerCtrlC) == SIG_ERR)
         errExit("Errore nel cambio del del segnale\n");
 
-
     /*il server deve attendere la connessione dei figli*/                                                                                              
 
     // -> printf("<Server> attesa dei due giocatori...\n");
-    /*rick code*/
-
     char pathFIFO[] = "/tmp/myfifo";
 	createFIFO(pathFIFO);
+
 
     printf("[DEBUG] [SERVER] Start server...\n");
 	pid_t client_pid[2];
 	char client_name[2][50];
 
+    //ridefinisco il segnale 
+    if (signal(SIGUSR1,handleBotOption) == SIG_ERR) {
+        errExit("Errore nella ridefinizione del segnale bot\n");
+    }
+
 	for(unsigned short client_nr = 0; client_nr<2; client_nr++) {
 		waitForClient(pathFIFO, client_nr, &client_pid[client_nr], client_name[client_nr]);
 	}
 
-    
 	printf("[DEBUG] [SERVER] User 1, pid: %d, name: %s\n", client_pid[0], client_name[0]);
 	printf("[DEBUG] [SERVER] User 2, pid: %d, name: %s\n", client_pid[1], client_name[1]);
     
     printf("<Server> la connessione è avvenuta con successo\n");
-    /*end rick code*/
-
+    
     /*arbitraggio della partita*/
 
     printf("<Server> sto avviando la partita...\n");
     // avvio la partita mandando il segnale al client
     kill(client_pid[0],SIGUSR1);
-    kill(client_pid[1],SIGUSR1);
+
+    if (bot_optz == 1)
+        kill(client_pid[1],SIGTERM);    // da provare con ISGUSR1 nel pc del lab
+    else 
+        kill(client_pid[1],SIGUSR1); 
 
     int sem_server = 0; 
     int win = 0;
@@ -222,9 +225,14 @@ int main(int argc, char *argv[]) {
 
         // sblocco un giocatore 
         semOp(sem_server_id,playerTurn,+1);
+
+        if (cont_ctrlc == 1) {
+            semOp(sem_server_id,playerTurn,+1);
+        }
+
         semOp(sem_server_id,sem_server,-1);
 
-        // cotnrollo se la partita è terminata in quanto ho preso un SIGINT
+        // cotnrollo se la partita è terminata in quanto ho preso due SIGINT
         if(end_game == 1) 
             break;
 
@@ -325,20 +333,21 @@ void waitForClient(char* pathFIFO, unsigned short client_nr, pid_t* pid, char* n
 void semOp (int semid, unsigned short sem_num, short sem_op) {
     struct sembuf sop = {.sem_num = sem_num, .sem_op = sem_op, .sem_flg = 0};
 
-    if (semop(semid, &sop, 1) == -1) {
-
-        // capto il segnale del interrupt
-        if(errno == EINTR) {
-            end_game = 1;
-        } 
-        else {
-            errExit("semOp failed(nel server)\n");
-        }
-    }
+    /* devo fare così altrimenti la semop va avanti se fallisce 
+    */
+    int ret;
+    do {
+        ret = semop(semid, &sop, 1);
+    } while (ret == -1 && errno == EINTR && end_game == 0);   
 }
 
 void handlerCtrlC(int sig) {
-    if (sig == SIGINT) {
+
+    if (sig == SIGINT && cont_ctrlc == 0) {
+        printf("<Server> ATTENZIONE SE PREMI ANCORA Ctrl+C LA PARTITA SI CHIUDE\n");
+        cont_ctrlc++;
+    }
+    else if (sig == SIGINT && cont_ctrlc == 1) {
         end_game = 1;
         printf("<Server> la partita è stata forzatamente chiusa\n");
     }
@@ -348,6 +357,28 @@ void handleCtrlClient(int sig) {
     if (sig == SIGUSR2) {
         end_game = 1;
         printf("<Server> rimozione per abbandono di un giocatore\n");
+    }
+}
+
+void handleBotOption(int sig) {
+    if (sig == SIGUSR1) {
+        
+        bot_optz = 1; // flag
+
+        pid_t pid;
+
+        pid = fork();
+
+        if (pid == -1) {
+            errExit("Fork error\n");
+        }
+        else if (pid == 0) {
+            // figlio che esegue un client
+            execl("F4client","./F4client","bot", NULL);
+            perror("Execl failed\n");            
+            _exit(0);
+        }      
+        
     }
 }
 
