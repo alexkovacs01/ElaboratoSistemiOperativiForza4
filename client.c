@@ -28,6 +28,13 @@ pid_t copy_server_pid;
 
 int main(int argc, char *argv[]) {
     
+    // controllo che l'inserimento avvenga come da specifiche 
+    if (argc > 3) {
+        printf("UTILIZZO SCORRETTO\n");
+        printf("Inserisca ./F4client nomegiocatore\n");
+        exit(-1);
+    }
+
     // time_t tempo;   // mi serve per capire quanto tempo sia passato 
 
     char *username;
@@ -229,7 +236,6 @@ void handleEndGameSingal(int signal) {
         // devo comunque terminare qui la partita ma inviare anche al server che uno dei due ha abbandonato
         end_flag = 1;
         printf("<Client> hai abbandonato la partita, hai perso!\n");
-        printf("DEBUG SERVER PID: %i", copy_server_pid);
         fflush(stdout);
         kill(copy_server_pid,SIGUSR2);
         exit(0);

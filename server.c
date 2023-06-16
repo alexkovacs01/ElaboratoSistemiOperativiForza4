@@ -27,6 +27,18 @@ pid_t client_pid[2];
 
 int main(int argc, char *argv[]) {
 
+    //per linux altrimenti non funzionano bene i segnali 
+    siginterrupt(SIGINT,1);
+    siginterrupt(SIGUSR2,2);
+    /* cosi facendo evito che ke sys call bloccanti vengano riavviate se si sono sbloccate a causa di un interrupt*/
+
+    // controllo per uso minimo di parametri
+    if (argc != 5) {
+        printf("UTILIZZO SCORRETTO\n");
+        printf("Inserisca ./F4server dim1 dim2 token1 token2\n");
+        exit(-1);
+    }
+
     // definiso il segnale per l'abbandono di un giocatore
     if(signal(SIGUSR2,handleCtrlClient) == SIG_ERR)
         errExit("Errore nel cambio del segnale(client)\n");
