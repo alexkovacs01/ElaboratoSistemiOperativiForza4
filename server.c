@@ -23,17 +23,19 @@ void handlerCtrlC(int sig);
 void handleBotOption(int sig);
 
 int end_game = 0, cont_ctrlc = 0, bot_optz = 0;
+pid_t client_pid[2];
 
 int main(int argc, char *argv[]) {
 
-    char *symbols[2];   // simboli usati nel gioco
+    // definiso il segnale per l'abbandono di un giocatore
+    if(signal(SIGUSR2,handleCtrlClient) == SIG_ERR)
+        errExit("Errore nel cambio del segnale(client)\n");
+
     int dim[2];         // dimensione passata come parametro
 
     /*./F4server row column token1 token2*/
     dim[0] = atoi(argv[1]);
     dim[1] = atoi(argv[2]);
-    symbols[0] = argv[3];
-    symbols[1] = argv[4];
 
     /*controllo se i parametri inseriti sono corretti altrimenti messaggio e chiusura {richiesto dal testo}*/
     if ((dim[0] < 5) || (dim[1] < 5)) {
@@ -47,9 +49,6 @@ int main(int argc, char *argv[]) {
     if ((dim[0] > 20) || (dim[1] > 20)) {
         errExit("Dimensione massima non rispettata\n");
     }
-
-    // giusto per stampare qualcosa, andrà rimossa
-    // printf("hai acquisito:%i, %i, %s, %s\n", dim[0],dim[1],symbols[0],symbols[1]);
 
     /*predisposizione della partita*/
 
@@ -82,9 +81,6 @@ int main(int argc, char *argv[]) {
     mymsg1.server_pid = getpid();
     mymsg2.server_pid = getpid();
     
-    //printf("Debug: prova %c\n", mymsg1.token1);
-    //printf("Debug: prova %c\n", mymsg1.token2);
-
     // invio i messaggio alla msgq e controllo se l'invio va a buon fine 
     if(msgsnd(msgq_server_id,&mymsg1,sizeof(mymsg1)-sizeof(long),0) == -1)
         errExit("Errore nell'invio della msgq\n");
@@ -138,49 +134,27 @@ int main(int argc, char *argv[]) {
     memoria condivisa pronta a essere utilizzata al meglio*/
 
     /*creo la matrice*/
-    //int *game_table[20];
     int game_matrix[20][20];
     
     //inizializzo la matrice
-    //inizialize_table_from_environ(&game_table,dim[0],dim[1]); -> deprecato
     inizialize_table(game_matrix,dim[0],dim[1]);
-    
-    /*copio i dati della matrice nella memoria condivisa -> deprecato
-    for(int i = 0; i < dim[0]; i++)
-        for(int j = 0; j < dim[1]; j++)
-            shm_table[i * dim[1] + j] = game_table[i * dim[1] + j];
-    */
 
     //copio i dati della matrice nella memoria condivisa 
     for(int i = 0; i < dim[0]; i++) 
         for(int j = 0; j < dim[1]; j++)
             shm_table[i*dim[1]+j] = game_matrix[i][j];
 
-    /* // server DEBUG MATRICI
-    printf("<Server> ecco cosa ho predisposto per i due giocatori:\n");
-    print_table(game_matrix,dim[0],dim[1]);
-    printf("<Server> ecco la tua fake table :) :\n");
-    print_fake_table(game_matrix,dim[0],dim[1],1,2,*argv[3],*argv[4]);
-    printf("<Server ecco cosa hai ottenuto:>\n");
-    for(int i = 0; i < dim[0]; i++) {
-        for(int j = 0; j < dim[1]; j++)
-            printf("{%i}",shm_table[i*dim[1]+j]);
-        printf("\n");
-    }
-    */
-
     if(signal(SIGINT,handlerCtrlC) == SIG_ERR)
         errExit("Errore nel cambio del del segnale\n");
 
-    /*il server deve attendere la connessione dei figli*/                                                                                              
+    /*il server deve attendere la connessione dei giocatori*/                                                                                              
 
-    // -> printf("<Server> attesa dei due giocatori...\n");
     char pathFIFO[] = "/tmp/myfifo";
 	createFIFO(pathFIFO);
 
 
-    printf("[DEBUG] [SERVER] Start server...\n");
-	pid_t client_pid[2];
+    printf("[SERVER] Starting server...\n");
+	
 	char client_name[2][50];
 
     //ridefinisco il segnale 
@@ -189,39 +163,46 @@ int main(int argc, char *argv[]) {
     }
 
 	for(unsigned short client_nr = 0; client_nr<2; client_nr++) {
-		waitForClient(pathFIFO, client_nr, &client_pid[client_nr], client_name[client_nr]);
+
+        if (end_game != 1)
+            waitForClient(pathFIFO, client_nr, &client_pid[client_nr], client_name[client_nr]);
+        // se si sconnette un giocatore muoiono tutti (in fase di connessione)
+        else 
+            break;
 	}
-
-	printf("[DEBUG] [SERVER] User 1, pid: %d, name: %s\n", client_pid[0], client_name[0]);
-	printf("[DEBUG] [SERVER] User 2, pid: %d, name: %s\n", client_pid[1], client_name[1]);
-    
-    printf("<Server> la connessione è avvenuta con successo\n");
-    
-    /*arbitraggio della partita*/
-
-    printf("<Server> sto avviando la partita...\n");
-    // avvio la partita mandando il segnale al client
-    kill(client_pid[0],SIGUSR1);
-
-    if (bot_optz == 1)
-        kill(client_pid[1],SIGTERM);    // da provare con ISGUSR1 nel pc del lab
-    else 
-        kill(client_pid[1],SIGUSR1); 
 
     int sem_server = 0; 
     int win = 0;
     int playerTurn = 1;     // -> parte il primo giocatore, il server cambierà il turno cedendo semaforo corretto
-
-    /*imposto i sengali*/
     
-    if(signal(SIGUSR2,handleCtrlClient) == SIG_ERR)
-        errExit("Errore nel cambio del segnale(client)\n");
+    if (end_game != 1) {
 
-    printf("<Server> partita avviata con successo!\n");
+        printf("[SERVER] User 1, pid: %d, name: %s\n", client_pid[0], client_name[0]);
+        printf("[SERVER] User 2, pid: %d, name: %s\n", client_pid[1], client_name[1]);
+        
+        printf("<Server> la connessione è avvenuta con successo\n");
+        
+        /*arbitraggio della partita*/
+
+        printf("<Server> sto avviando la partita...\n");
+        // avvio la partita mandando il segnale al client
+        kill(client_pid[0],SIGUSR1);
+
+        if (bot_optz == 1)
+            kill(client_pid[1],SIGTERM);    // non funziona con ISGUSR1 nel pc del lab
+        else 
+            kill(client_pid[1],SIGUSR1); 
+        
+        /*
+        if(signal(SIGUSR2,handleCtrlClient) == SIG_ERR)
+            errExit("Errore nel cambio del segnale(client)\n");
+        */
+
+        printf("<Server> partita avviata con successo!\n");
+
+    }
+    
     while(!end_game) {
-
-        // blocco il server
-        //printf("DEBUG-> METTO A DORMIRE IL SERVER\n");
 
         // sblocco un giocatore 
         semOp(sem_server_id,playerTurn,+1);
@@ -236,15 +217,12 @@ int main(int argc, char *argv[]) {
         if(end_game == 1) 
             break;
 
-        //printf("DEBUG-> CIAO SONO IL SERVER E MI SON O SBLOCCATO :)))\n");
-
         // controllo se qualcuno ha vinto aggiornando la matrice copiandola dalla memoria condivisa
         for(int i = 0; i < dim[0]; i++) 
             for(int j = 0; j < dim[1]; j++)
                 game_matrix[i][j] = shm_table[i * dim[1] +j];
 
         // la check_win vuole il player turn -> attualmente verifico se c'è una vittoria con entrambi i simboli 
-        // BISOGNA SISTEMARE QUESTO
         win = check_win(game_matrix,1/*symbol_player*/,dim[0],dim[1]);
 
         if (win != 1) 
@@ -276,18 +254,20 @@ int main(int argc, char *argv[]) {
             printf("<Server> sta elimnando la msgq...\n");
             if(msgctl(msgq_server_id,0,IPC_RMID) == -1)
                 errExit("Errore nella rimozione della msgq\n");
+            
+            /*eliminare la fifo*/
+            printf("<Server> sta eliminando la fifo...\n");
+            if(remove("/tmp/myfifo") == -1)
+            errExit("Errore nella rimozione della fifo\n");
         
             exit(0);    // fine del gioco
 
         }
         else if (win != 1) {
-            printf("<Server>Nessuno ha ancora vinto quindi aspetterò ancora un po...\n");
-            // se siamo qui non ha vinto nessuno quindi la partita o è in pareggio o deve continuare 
-            // per il momento faccio solamente continuare il gioco 
-            //semOp(sem_server_id,sem_server,-1); // blocco quindi il server 
+            printf("<Server> Nessuno ha ancora vinto quindi aspetterò ancora un po...\n");
+            // se siamo qui non ha vinto nessuno quindi la partita deve continuare 
             playerTurn = (playerTurn % 2) + 1; // cambio turno
         }
-
     }
 
     // qui arriviamo solo se end_game == -1
@@ -315,6 +295,11 @@ int main(int argc, char *argv[]) {
     if(msgctl(msgq_server_id,0,IPC_RMID) == -1)
         errExit("Errore nella rimozione della msgq\n");
 
+    /*eliminare la fifo*/
+    printf("<Server> sta eliminando la fifo...\n");
+    if(remove("/tmp/myfifo") == -1)
+        errExit("Errore nella rimozione della fifo\n");
+
     return 0;
 }
 
@@ -324,17 +309,18 @@ void errExit(const char *msg) {
 }
 
 void waitForClient(char* pathFIFO, unsigned short client_nr, pid_t* pid, char* name) {
-	struct bufFIFO buf;
-	readFIFO(pathFIFO, &buf, sizeof(buf));
+
+    struct bufFIFO buf; 
+    readFIFO(pathFIFO, &buf, sizeof(buf),&end_game);
 	strcpy(name, buf.str1);
-	*pid = buf.pidSender;
+	*pid = buf.pidSender;  
+    
 }
 
 void semOp (int semid, unsigned short sem_num, short sem_op) {
     struct sembuf sop = {.sem_num = sem_num, .sem_op = sem_op, .sem_flg = 0};
 
-    /* devo fare così altrimenti la semop va avanti se fallisce 
-    */
+    /* devo fare così altrimenti la semop va avanti se fallisce*/
     int ret;
     do {
         ret = semop(semid, &sop, 1);
@@ -374,11 +360,13 @@ void handleBotOption(int sig) {
         }
         else if (pid == 0) {
             // figlio che esegue un client
-            execl("F4client","./F4client","bot", NULL);
+            execl("F4client","./F4client","*", NULL);   
             perror("Execl failed\n");            
             _exit(0);
         }      
         
     }
 }
+
+
 

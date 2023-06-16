@@ -17,19 +17,24 @@ void writeFIFO(char* pathFIFO, void* buf, size_t size) {
 	close(fd);
 }
 
-void readFIFO(char* pathFIFO, void* buf, size_t size) {
+void readFIFO(char* pathFIFO, void* buf, size_t size,int *end_game) {
 
 	int fd;
 
 	do {
 		fd = open(pathFIFO, O_RDONLY); 
-	} while(fd < 0 && errno == EINTR);
+	} while(fd < 0 && errno == EINTR && *(end_game)!= 1);
 	
-	if(read(fd, buf, size) == -1) {
-		errExit2("read() failed");
+	if (*(end_game) != 1) {
+
+		if(read(fd, buf, size) == -1) {
+			errExit2("read() failed");
+		}
+	
+		close(fd);
+	
 	}
 
-	close(fd);
 }
 
 void errExit2(const char *msg) {

@@ -8,7 +8,7 @@ struct myMsg {
     long mtype; /* tipo di messaggio {obbligatorio} */ 
     int PlayerNumber;   // -> numero del giocatore
     int dim1;   // -> righe tabelle
-    int dim2;   // -> colonne tabells 
+    int dim2;   // -> colonne tabelle 
     char token1;
     char token2;
     pid_t server_pid;
@@ -19,7 +19,7 @@ void handleStartSingal(int signal);
 void errExit(const char *msg);
 void semOp (int semid, unsigned short sem_num, short sem_op);
 void handleEndGameSingal(int signal);
-
+void handleAlarm(int sig);
 
 int gameStarted = 0;
 int playerTurn = 0; // 0 per giocatore 1, 1 per giocatore 2
@@ -28,7 +28,7 @@ pid_t copy_server_pid;
 
 int main(int argc, char *argv[]) {
     
-    time_t tempo;   // mi serve per capire quanto tempo sia passato 
+    // time_t tempo;   // mi serve per capire quanto tempo sia passato 
 
     char *username;
     char *auto_bot;
@@ -36,7 +36,6 @@ int main(int argc, char *argv[]) {
     auto_bot = argv[2];
 
     /*MSGQ*/
-
     // chiave della msgq
     key_t msgq_key = 92;
 
@@ -57,20 +56,13 @@ int main(int argc, char *argv[]) {
             errExit("Errore nella ricezione del messaggio della msgq\n");
     }
 
-    /*
-    printf("DEBUG ecco la dimensione della matrice: [%i][%i]\n:", mymsg.dim1,mymsg.dim2);
-    printf("DEBUG ecco il tuo simbolo: ->%c<-\n", mymsg.token1);
-    printf("DEBUG ecco il tuo simbolo: ->%c<-\n", mymsg.token2);
-    printf("DEBUG ecco il pid del server -><%i><-\n",mymsg.server_pid);
-    */
-
     int dim1 = mymsg.dim1;
     int dim2 = mymsg.dim2;
 
     copy_server_pid = mymsg.server_pid;
 
     /*significa che voglio giocare contro un bot*/
-    if (auto_bot != NULL && (strcmp(auto_bot,"bot") == 0)) { 
+    if (auto_bot != NULL && (strcmp(auto_bot,"*") == 0)) {  // per eseguirlo allora dobbiamo scrivere \* nel client 
         printf("Ho inviato il segnale al server per botgame\n");
         // informo il server di questa cosa (questa cosa succede all'inizio della partita)
         kill(copy_server_pid,SIGUSR1);  // Uso SIGUSR1 per dire di giocare contro il bot
@@ -86,12 +78,6 @@ int main(int argc, char *argv[]) {
 	buf.messageType = 1;
 	buf.pidSender = getpid();
 	buf.messageType = 1; // For request connection
-	//buf.str1[0] = 'A';
-    /*
-	printf("%i\n", getpid());
-    printf("%i\n", argc);
-    printf("%s\n",argv[1]);
-    */
 
     char name[strlen(argv[1])];
     strcpy(name,argv[1]);
@@ -105,6 +91,14 @@ int main(int argc, char *argv[]) {
     
     writeFIFO(pathFIFO, &buf, sizeof(buf));
 
+    //signal(SIGUSR2,handleAspetta);
+
+    // sono il bot
+    if (getppid() == copy_server_pid)
+        signal(SIGINT,SIG_IGN);
+    else if ((signal(SIGINT,handleEndGameSingal) == SIG_ERR))
+            errExit("Errore nella ricezione del sengale\n");
+    
     while(!gameStarted){
         pause();    // -> Mi metto in attesa per l'inizio della partita 
     }
@@ -143,9 +137,10 @@ int main(int argc, char *argv[]) {
     
     if (signal(SIGUSR2,handleEndGameSingal) == SIG_ERR)
             errExit("Errore nella ricezione del sengale\n");
-
+    /*
     if (signal(SIGINT,handleEndGameSingal) == SIG_ERR)
             errExit("Errore nella ricezione del sengale\n");
+    */
     
     int ins_flag = 0;   // -> controllo se non si è verificato un pareggio
 
@@ -170,26 +165,32 @@ int main(int argc, char *argv[]) {
         // il turno+1 coincide col simbolo per la vittoria
         printf("<Client> inserisci: \n");
 
-        /*
-        printf("Ecco il pid del padre-> %i\n",getppid());
-        printf("Copy server pid-> %i\n", copy_server_pid);
-        */
-
         /*controllo se sono stato eseguito dal server o meno*/
         if (getppid() == copy_server_pid) {
             //printf("GIOCO CONTRO BOT\n");
             ins_flag = insert_in_table(mat_copy,mymsg.PlayerNumber,mymsg.PlayerNumber,1/*vs bot*/,dim1,dim2);
         } else {
 
-            tempo = time(0);
+
+            alarm(5);   // dopo 5 sec vieni disconnesso
+
+            signal(SIGALRM,handleAlarm);
 
             ins_flag = insert_in_table(mat_copy,mymsg.PlayerNumber,mymsg.PlayerNumber,0/*no vs bot{1x gicare contro il bot}*/,dim1,dim2);
+            
+            alarm(0);
+
+            /*  // versione che non utilizza allarm e non disconnette in automatico il giocatore, ricordati di deccomentare il tempo
+            tempo = time(0);
+
+            ins_flag = insert_in_table(mat_copy,mymsg.PlayerNumber,mymsg.PlayerNumber,0 no vs bot{1x gicare contro il bot} ,dim1,dim2);
 
             // se l'inserimento del giocatore è durato troppo allora lo sconnetto
             if ((tempo - (time(0))) < -5) {
                 printf("<Client> sei stato sconnesso per time-out\n");
                 kill(getpid(),SIGINT);  // mi chiudo 
             }
+            */
             
         }
 
@@ -228,6 +229,8 @@ void handleEndGameSingal(int signal) {
         // devo comunque terminare qui la partita ma inviare anche al server che uno dei due ha abbandonato
         end_flag = 1;
         printf("<Client> hai abbandonato la partita, hai perso!\n");
+        printf("DEBUG SERVER PID: %i", copy_server_pid);
+        fflush(stdout);
         kill(copy_server_pid,SIGUSR2);
         exit(0);
     }
@@ -246,8 +249,7 @@ void semOp (int semid, unsigned short sem_num, short sem_op) {
         if (errno == EINTR) {
             kill(copy_server_pid,SIGINT);   // mando l'interrupt anche al server
             exit(0);
-        } /*The semaphore set doesn't exist, or semid is less than
-              zero, or nsops has a nonpositive value.*/
+        } 
         else if (errno == EINVAL) {   // per il primo giocatore
             exit(0);
         }
@@ -255,4 +257,9 @@ void semOp (int semid, unsigned short sem_num, short sem_op) {
             errExit("SemOp failed(nel client)\n");
         }
     }   
+}
+
+void handleAlarm(int sig) {
+    printf("<Client> sei stato sconnesso per time-out!!!\n");
+    kill(getpid(),SIGINT); // mi chiudo
 }

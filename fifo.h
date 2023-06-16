@@ -12,20 +12,15 @@ struct bufFIFO{
 	char str1[50];							// Multiple usage
 };
 
-
-/// @brief Create a new FIFO
 /// @param pathFIFO path for the FIFO
 void createFIFO(char* pathFIFO);
 
-/// @brief Write inside the FIFO
 /// @param pathFIFO path of the FIFO
 /// @param buf Buffer of the data
 /// @param size Size of the buffer
-/// @warning NOT SAFE TO USE FOR NOW (Not tested)
 void writeFIFO(char* pathFIFO, void* buf, size_t size);
 
-/// @warning NOT SAFE TO USE FOR NOW (Not tested)
-void readFIFO(char* pathFIFO, void* buf, size_t size);
+void readFIFO(char* pathFIFO, void* buf, size_t size,int *end_game);
 
 void errExit2(const char *);
 
